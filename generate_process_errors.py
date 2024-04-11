@@ -8,7 +8,7 @@ import os
 # Returns: new error-filled report
 def add_iterative_error(report, client, error_added):
     # change this if you want to change the base system prompt when testing individual errors
-    system_prompt = "You will be given a radiology report of a chest X-ray. Your task is to change some of the statements in the report so that the report is still clinically plausible but has a different meaning than the previous report. Keep track of the sentence indexes corresponding to the sentences you change in a report. Please also add " + error_added + "\nFor a given report, return a new report with one or more changed sentences according to the above paragraph, a new line, and then a Python dictionary in the following format: {error sentence index : label, explanation, original sentence index]}. Make sure this format is followed exactly, including the spacing. The label is determined by the following:\n0: unchanged sentence\n1: changed sentence\n‘explanation’ is determined by the following:\nWhen the label is 1: 'explanation' should contain one statement about the change made in the sentence. The length of the statement should not exceed 15 words. When the 'label' is 0: 'explanation' should contain 'not applicable'. The error sentence indices should match the total number of sentences of the error report, after any additions, and include an entry for every sentence in the error report. For example, an error report of three sentences should have a dictionary of {0: [label, explanation, original sentence index], 1: [label, explanation, original sentence index], 2: [label, explanation, original sentence index]}. The original sentence index refers to the sentence  index of the original report that was changed. If the error is not based on a sentence from the original report (e.g. an addition) or the sentence is correct, leave the original sentence index blank."
+    system_prompt = "You will be given a radiology report of a chest X-ray. Your task is to change some of the statements in the report so that the report is still clinically plausible but has a different meaning than the previous report. Keep track of the sentence indexes corresponding to the sentences you change in a report. Please also " + error_added + "\nFor a given report, return a new report with one or more changed sentences according to the above paragraph, a new line, and then a Python dictionary in the following format: {error sentence index : label, explanation, original sentence index]}. Make sure this format is followed exactly, including the spacing. The label is determined by the following:\n0: unchanged sentence\n1: changed sentence\n‘explanation’ is determined by the following:\nWhen the label is 1: 'explanation' should contain one statement about the change made in the sentence. The length of the statement should not exceed 15 words. When the 'label' is 0: 'explanation' should contain 'not applicable'. The error sentence indices should match the total number of sentences of the error report, after any additions (ex. repetitions), and include an entry for every sentence in the error report. For example, an error report of three sentences should have a dictionary of {0: [label, explanation, original sentence index], 1: [label, explanation, original sentence index], 2: [label, explanation, original sentence index]}. The original sentence index refers to the sentence  index of the original report that was changed. If the error is not based on a sentence from the original report (e.g. an addition) or the sentence is correct, leave the original sentence index blank."
     response = client.chat.completions.create(
     model="gpt-4",
     messages=[
@@ -78,16 +78,26 @@ def splice_sentences(error_df):
             sentence_label = ast.literal_eval(error_df['Sentence Labelings'][i])
             for j in range(len(spliced_error_report)):
                 if j in sentence_label.keys():
-                    error_classes.append(sentence_label[j][1])
-                    labels.append(int(sentence_label[j][0]))
-                    if len(str(sentence_label[j][2]).strip())>0:
-                        ground_truth_sentences.append(spliced_gt_report[int(sentence_label[j][2])])
+                    error_class = sentence_label[j][1]
+                    label = int(sentence_label[j][0])
+                    if len(sentence_label[j]) == 3:
+                        if len(str(sentence_label[j][2]).strip())>0:
+                            ground_truth_sentence = spliced_gt_report[int(sentence_label[j][2])]
+                        else:
+                           ground_truth_sentence = "" 
                     else:
-                        ground_truth_sentences.append("")
-                    error_sentences.append(spliced_error_report[j])
+                        ground_truth_sentence = ""
+                    error_sentence = spliced_error_report[j]
+                    study_id = error_df['Study ID'][i]
+                    subject_id = error_df['Subject ID'][i]
+                    labels.append(label)
+                    error_sentences.append(error_sentence)
                     sequences.append(j)
-                    study_ids.append(error_df['Study ID'][i])
-                    subject_ids.append(error_df['Subject ID'][i])
+                    study_ids.append(study_id)
+                    subject_ids.append(subject_id)
+                    error_classes.append(error_class)
+                    ground_truth_sentences.append(ground_truth_sentence)
+
         except:
             continue
 
@@ -103,10 +113,11 @@ def splice_sentences(error_df):
     return spliced_error_df
 
 # Iterate through dictionary of errors to try
-# Input: error_dict (keys are numbers, values are individual errors to try), mimic_df, api_key, root_path (root path to save results)
+# Input: error_dict (keys are numbers, values are individual errors to try), mimic_df, api_key, root_path (root path to save results), indices (indices of error dictionary to run for)
 # Returns: None
-def save_iterative_errors(error_dict, mimic_df, api_key, root_path):
-    for i in range(len(error_dict)):
+def save_iterative_errors(error_dict, mimic_df, api_key, root_path, indices):
+    for i in indices:
+        print(i)
         if not os.path.exists(root_path + f'/{i+1}/'):
             os.mkdir(root_path + f'/{i+1}/')
         error_df = generate_error_df(mimic_df, api_key, error_dict[i], True)
